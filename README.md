@@ -5,7 +5,7 @@ Useful for creating a pool of reproducible environments. No more snowflakes!
 
 See [DEVELOPMENT](DEVELOPMENT.md) if you're interested in submitting a PR :+1:
 
-![Docker Pulls](https://img.shields.io/docker/pulls/ljfranklin/terraform-resource.svg)
+![Docker Pulls](https://img.shields.io/docker/pulls/halternz/terraform-resource.svg)
 
 ## Source Configuration
 
@@ -36,7 +36,7 @@ resource_types:
 - name: terraform
   type: docker-image
   source:
-    repository: ljfranklin/terraform-resource
+    repository: halternz/terraform-resource
     tag: latest
 
 resources:
@@ -79,12 +79,10 @@ resources:
 
 Note: all images support AMD64 and ARM64 architectures, although only AMD64 is fully tested prior to release.
 
-- Latest stable release of resource: `ljfranklin/terraform-resource:latest`.
-- Specific versions of Terraform, e.g. `ljfranklin/terraform-resource:0.7.7`.
-- [RC builds](https://concourse.lylefranklin.com/teams/main/pipelines/terraform-resource-rc) from Terraform pre-releases: `ljfranklin/terraform-resource:rc`.
-- [Nightly builds](https://concourse.lylefranklin.com/teams/main/pipelines/terraform-resource-nightly) from Terraform `master` branch: `ljfranklin/terraform-resource:nightly`.
+- Latest stable release of resource: `halternz/terraform-resource:latest`.
+- Specific versions of Terraform, e.g. `halternz/terraform-resource:0.7.7`.
 
-See [Dockerhub](https://hub.docker.com/r/ljfranklin/terraform-resource/tags/) for a list of all available tags.
+See [Dockerhub](https://hub.docker.com/r/halternz/terraform-resource/tags/) for a list of all available tags.
 If you'd like to build your own image from a specific Terraform branch, configure a pipeline with [build-image-pipeline.yml](ci/build-image-pipeline.yml).
 
 ## Behavior
@@ -98,7 +96,7 @@ A `get` step outputs the same `metadata` file format shown below for `put`.
 > **Note:** In Concourse, a `put` is always followed by an implicit `get`. To pass `get` params via `put`, use `put.get_params`.
 
 * `output_statefile`: *Optional. Default `false`* If true, the resource writes the Terraform statefile to a file named `terraform.tfstate`.**Warning:** Ensure any changes to this statefile are persisted back to the resource's storage bucket. **Another warning:** Some statefiles contain unencrypted secrets, be careful not to expose these in your build logs.
-* `output_planfile`: *Optional. Default `false`* If true a file named `plan.json` with the JSON representation of the Terraform binary plan file will be created.   
+* `output_planfile`: *Optional. Default `false`* If true a file named `plan.json` with the JSON representation of the Terraform binary plan file will be created.
 
 * `output_module` *Optional.* Write only the outputs from the given module name to the `metadata` file.
 
@@ -136,7 +134,7 @@ For example: if your `.tf` files are stored in a git repo called `prod-config` u
 * `override_files`: *Optional.* A list of files to copy into the `terraform_source` directory. Override files must follow conventions outlined [here](https://www.terraform.io/docs/configuration/override.html) such as file names ending in `_override.tf`.
 
 * `module_override_files`: *Optional.* A list of maps to copy override files to specific destination directories. Override files must follow conventions outlined [here](https://www.terraform.io/docs/configuration/override.html) such as file names ending in `_override.tf`.
-The source file is specified with `src` and the destination directory with `dst`. 
+The source file is specified with `src` and the destination directory with `dst`.
 
 * `action`: *Optional.* When set to `destroy`, the resource will run `terraform destroy` against the given statefile.
   > **Note:** You must also set `put.get_params.action` to `destroy` to ensure the task succeeds. This is a temporary workaround until Concourse adds support for `delete` as a first-class operation. See [this issue](https://github.com/concourse/concourse/issues/362) for more details.
