@@ -1,4 +1,8 @@
 jobs:
+  - name: never-pause
+    plan:
+      - get: one-hour
+        trigger: true
   - name: auto-bump-terraform
     plan:
       - in_parallel:
@@ -105,6 +109,9 @@ jobs:
           PASSWORD: ((dockerhub-password))
 
 resources:
+- name: one-hour
+  type: time
+  source: {interval: 1h}
 - name: tasks
   type: s3
   source:
