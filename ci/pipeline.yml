@@ -108,6 +108,87 @@ jobs:
           USERNAME: ((dockerhub-username))
           PASSWORD: ((dockerhub-password))
 
+  - name: push-image-pr
+    serial_groups: [track1, track2, track3, track4, track5]
+    plan:
+      - in_parallel:
+        - get: tasks
+          params: {unpack: true}
+        - get: resource-src-pr
+          trigger: true
+      - task: setup-version-pr
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: alpine
+              tag: latest
+          inputs:
+            - name: resource-src-pr
+          outputs:
+            - name: version
+          run:
+            path: sh
+            args:
+            - -c
+            - |
+              #!/bin/sh
+              BRANCH_NAME=$(cat resource-src-pr/.git/resource/head_name)
+              SANITIZED_BRANCH=$(echo "$BRANCH_NAME" | sed 's/[^a-zA-Z0-9._-]/-/g' | tr '[:upper:]' '[:lower:]')
+              echo "$SANITIZED_BRANCH" > version/version
+      - in_parallel:
+        - task: build-artifacts-pr
+          file: resource-src-pr/ci/tasks/build-prod-artifacts.yml
+          input_mapping:
+            resource-src: resource-src-pr
+        - task: create-architecture-tags-pr
+          file: tasks/oci/tasks/architecture-tags.yml
+      - in_parallel:
+        - task: build-amd64-image-pr
+          privileged: true
+          file: tasks/oci/tasks/build-v2.yml
+          params:
+            IMAGE_PLATFORM: linux/amd64
+            DOCKERFILE: Dockerfile
+          input_mapping:
+            context: build-artifacts
+          output_mapping:
+            image: amd64_image
+        - task: build-arm64-image-pr
+          privileged: true
+          file: tasks/oci/tasks/build-v2.yml
+          params:
+            IMAGE_PLATFORM: linux/arm64
+            DOCKERFILE: Dockerfile
+          input_mapping:
+            context: build-artifacts
+          output_mapping:
+            image: arm64_image
+      - in_parallel:
+        - put: terraform-resource-image
+          inputs:
+            - arm64_image
+            - tags
+          params:
+            image: arm64_image/image.tar
+            additional_tags: tags/arm64
+        - put: terraform-resource-image
+          inputs:
+            - amd64_image
+            - tags
+          params:
+            image: amd64_image/image.tar
+            additional_tags: tags/amd64
+      - task: create-multiarch-manifest-pr
+        file: tasks/oci/tasks/create-multiarch-manifest.yml
+        privileged: true
+        params:
+          REPOSITORY: halternz/terraform-resource
+          USERNAME: ((dockerhub-username))
+          PASSWORD: ((dockerhub-password))
+          SKIP_LATEST: true
+
 resources:
 - name: one-hour
   type: time
@@ -126,6 +207,13 @@ resources:
     uri: git@github.com:halter/terraform-resource.git
     branch: master
     private_key: ((ssh-private-key))
+- name: resource-src-pr
+  type: pull-request
+  source:
+    repository: halter/terraform-resource
+    access_token: ((github-automation.token))
+    base_branch: master
+    ignore_drafts: true
 - name: terraform-github-release
   type: github-release
   source:
