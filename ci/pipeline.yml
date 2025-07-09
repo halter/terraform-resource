@@ -189,6 +189,14 @@ jobs:
           PASSWORD: ((dockerhub-password))
           SKIP_LATEST: true
 
+resource_types:
+  - name: pull-request
+    type: registry-image
+    source:
+      repository: teliaoss/github-pr-resource
+      registry_mirror:
+        host: container-registry.tools.halter.io
+
 resources:
 - name: one-hour
   type: time
