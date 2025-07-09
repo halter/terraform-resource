@@ -168,7 +168,7 @@ resource "terraform_data" "plan_output" {
   input = %s
 }
 resource "terraform_data" "plan_output_json" {
-  desired = %s
+  input = %s
 }
 output "%s" {
   sensitive = true
