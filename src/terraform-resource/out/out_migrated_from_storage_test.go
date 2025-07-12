@@ -605,6 +605,11 @@ var _ = Describe("Out - Migrated From Storage", func() {
 	})
 
 	Context("when applying a plan", func() {
+		BeforeEach(func() {
+			err := helpers.DownloadStatefulPlugin(workingDir)
+			Expect(err).ToNot(HaveOccurred())
+		})
+
 		It("plan infrastructure and apply it", func() {
 			planRequest := models.OutRequest{
 				Source: models.Source{
