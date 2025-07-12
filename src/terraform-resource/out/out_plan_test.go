@@ -64,6 +64,9 @@ var _ = Describe("Out Plan", func() {
 		fixturesDir := path.Join(helpers.ProjectRoot(), "fixtures")
 		err = exec.Command("cp", "-r", fixturesDir, workingDir).Run()
 		Expect(err).ToNot(HaveOccurred())
+
+		err = helpers.DownloadStatefulPlugin(workingDir)
+		Expect(err).ToNot(HaveOccurred())
 	})
 
 	AfterEach(func() {
