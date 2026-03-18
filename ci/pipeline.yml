@@ -26,6 +26,26 @@ jobs:
           repository: committed-resource-src/
           rebase: true
 
+  - name: create-version-pipelines
+    plan:
+      - get: resource-src
+        trigger: true
+      - task: discover-terraform-versions
+        file: resource-src/ci/tasks/discover-terraform-versions.yml
+        params:
+          GITHUB_TOKEN: ((github-automation.token))
+      - load_var: versions
+        file: terraform-versions/versions.json
+      - across:
+        - var: tf-version
+          values: ((.:versions))
+        set_pipeline: terraform-resource
+        file: resource-src/ci/instanced-pipeline.yml
+        instance_vars:
+          terraform-version: ((.:tf-version))
+        vars:
+          terraform-version: ((.:tf-version))
+
   - name: push-image
     serial_groups: [track1, track2, track3, track4, track5]
     plan:

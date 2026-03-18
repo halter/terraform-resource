@@ -9,7 +9,7 @@ workspace_dir="$( cd "${release_dir}" && cd .. && pwd )"
 : ${DOCKERFILE_DIR:?}
 : ${TARGETARCH:=amd64}
 
-terraform_version="$( cat "${release_dir}/config/terraform-version" )"
+terraform_version="${TERRAFORM_VERSION:-$( cat "${release_dir}/config/terraform-version" )}"
 
 # outputs
 if [ "$#" -eq 1 ]; then

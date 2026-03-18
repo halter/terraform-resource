@@ -1,0 +1,27 @@
+---
+platform: linux
+
+image_resource:
+  type: registry-image
+  source:
+    repository: alpine
+    tag: latest
+
+inputs:
+- name: resource-src
+
+outputs:
+- name: terraform-versions
+
+params:
+  MIN_VERSION: "1.9.8"
+  GITHUB_TOKEN: ""
+
+run:
+  path: sh
+  args:
+  - -c
+  - |
+    apk add --no-cache bash jq github-cli
+    export GH_TOKEN="${GITHUB_TOKEN}"
+    resource-src/ci/tasks/discover-terraform-versions

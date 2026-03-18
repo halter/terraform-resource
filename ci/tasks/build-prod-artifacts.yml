@@ -18,3 +18,4 @@ run:
 
 params:
   DOCKERFILE_DIR: "resource-src/docker-prod/"
+  TERRAFORM_VERSION: ""

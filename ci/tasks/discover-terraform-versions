@@ -1,0 +1,43 @@
+#!/bin/bash
+
+set -eu -o pipefail
+
+workspace_dir="$(cd "$(dirname "$0")" && cd ../.. && cd .. && pwd)"
+
+# env
+: ${MIN_VERSION:="1.9.8"}
+
+# outputs
+output_dir="${workspace_dir}/terraform-versions"
+mkdir -p "${output_dir}"
+
+IFS='.' read -r min_major min_minor min_patch <<< "${MIN_VERSION}"
+
+versions="$(gh release list \
+  --repo hashicorp/terraform \
+  --exclude-drafts \
+  --exclude-pre-releases \
+  --limit 200 \
+  --json tagName \
+  --jq '.[].tagName | ltrimstr("v")')"
+
+json_array="[]"
+while IFS= read -r version; do
+  if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    continue
+  fi
+
+  IFS='.' read -r major minor patch <<< "${version}"
+
+  if [ "${major}" -gt "${min_major}" ] ||
+     ([ "${major}" -eq "${min_major}" ] && [ "${minor}" -gt "${min_minor}" ]) ||
+     ([ "${major}" -eq "${min_major}" ] && [ "${minor}" -eq "${min_minor}" ] && [ "${patch}" -ge "${min_patch}" ]); then
+    json_array="$(echo "${json_array}" | jq --arg v "${version}" '. + [$v]')"
+  fi
+done <<< "${versions}"
+
+json_array="$(echo "${json_array}" | jq 'sort_by(split(".") | map(tonumber))')"
+
+echo "${json_array}" > "${output_dir}/versions.json"
+echo "Discovered $(echo "${json_array}" | jq 'length') Terraform versions >= ${MIN_VERSION}:"
+echo "${json_array}" | jq -r '.[]'
