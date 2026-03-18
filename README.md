@@ -29,6 +29,8 @@ See [Terraform Input Variables](https://www.terraform.io/language/values/variabl
 
 * `private_key`: *Optional.* An SSH key used to fetch modules, e.g. [private GitHub repos](https://www.terraform.io/docs/modules/sources.html#private-github-repos).
 
+* `registry_credentials`: *Optional.* A list of private Terraform registry credentials. Each entry has a `host` (e.g. `registry.example.com`) and a `token` (a pre-generated bearer token). These are injected as [`TF_TOKEN_*` environment variables](https://developer.hashicorp.com/terraform/cli/config/config-file#environment-variable-credentials) so that `terraform init` can authenticate with private registries.
+
 #### Source Example
 
 ```yaml
@@ -56,6 +58,9 @@ resources:
       env:
         AWS_ACCESS_KEY_ID: {{environment_access_key}}
         AWS_SECRET_ACCESS_KEY: {{environment_secret_key}}
+      registry_credentials:
+      - host: registry.example.com
+        token: ((registry.token))
 ```
 
 The above example uses AWS S3 to store Terraform state files. All `backend_config` options documented [here](https://www.terraform.io/docs/backends/types/s3.html#configuration-variables) are forwarded straight to Terraform.

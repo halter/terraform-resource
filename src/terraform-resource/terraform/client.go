@@ -904,5 +904,7 @@ func (c *client) terraformCmd(args []string, env []string) (*runner.Runner, erro
 		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", key, value))
 	}
 
+	cmd.Env = append(cmd.Env, c.model.RegistryTokenEnvVars()...)
+
 	return runner.New(cmd, c.logWriter), nil
 }
