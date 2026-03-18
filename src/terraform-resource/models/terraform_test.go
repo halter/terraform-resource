@@ -197,6 +197,107 @@ some_hcl_key = "some_hcl_value"
 		})
 	})
 
+	Describe("RegistryCredentials", func() {
+		It("overrides base credentials when merged model has credentials", func() {
+			baseModel := models.Terraform{
+				RegistryCredentials: []models.RegistryCredential{
+					{Host: "base.example.com", Token: "base-token"},
+				},
+			}
+			mergeModel := models.Terraform{
+				RegistryCredentials: []models.RegistryCredential{
+					{Host: "merged.example.com", Token: "merged-token"},
+				},
+			}
+
+			finalModel := baseModel.Merge(mergeModel)
+			Expect(finalModel.RegistryCredentials).To(Equal([]models.RegistryCredential{
+				{Host: "merged.example.com", Token: "merged-token"},
+			}))
+		})
+
+		It("preserves base credentials when merged model has nil credentials", func() {
+			baseModel := models.Terraform{
+				RegistryCredentials: []models.RegistryCredential{
+					{Host: "base.example.com", Token: "base-token"},
+				},
+			}
+			mergeModel := models.Terraform{}
+
+			finalModel := baseModel.Merge(mergeModel)
+			Expect(finalModel.RegistryCredentials).To(Equal([]models.RegistryCredential{
+				{Host: "base.example.com", Token: "base-token"},
+			}))
+		})
+	})
+
+	Describe("RegistryTokenEnvVars", func() {
+		It("produces TF_TOKEN env var with dots replaced by underscores", func() {
+			model := models.Terraform{
+				RegistryCredentials: []models.RegistryCredential{
+					{Host: "registry.example.com", Token: "my-secret-token"},
+				},
+			}
+			Expect(model.RegistryTokenEnvVars()).To(Equal([]string{
+				"TF_TOKEN_registry_example_com=my-secret-token",
+			}))
+		})
+
+		It("produces multiple TF_TOKEN env vars for multiple credentials", func() {
+			model := models.Terraform{
+				RegistryCredentials: []models.RegistryCredential{
+					{Host: "registry.example.com", Token: "token-1"},
+					{Host: "private.registry.io", Token: "token-2"},
+				},
+			}
+			Expect(model.RegistryTokenEnvVars()).To(Equal([]string{
+				"TF_TOKEN_registry_example_com=token-1",
+				"TF_TOKEN_private_registry_io=token-2",
+			}))
+		})
+
+		It("skips credentials with empty host", func() {
+			model := models.Terraform{
+				RegistryCredentials: []models.RegistryCredential{
+					{Host: "", Token: "some-token"},
+				},
+			}
+			Expect(model.RegistryTokenEnvVars()).To(BeEmpty())
+		})
+
+		It("skips credentials with empty token", func() {
+			model := models.Terraform{
+				RegistryCredentials: []models.RegistryCredential{
+					{Host: "registry.example.com", Token: ""},
+				},
+			}
+			Expect(model.RegistryTokenEnvVars()).To(BeEmpty())
+		})
+
+		It("replaces hyphens in host with underscores", func() {
+			model := models.Terraform{
+				RegistryCredentials: []models.RegistryCredential{
+					{Host: "my-registry.example.com", Token: "token"},
+				},
+			}
+			Expect(model.RegistryTokenEnvVars()).To(Equal([]string{
+				"TF_TOKEN_my_registry_example_com=token",
+			}))
+		})
+
+		It("passes token value through unmodified", func() {
+			token := "eyJhbGciOiJSUzI1NiIs.special+chars/here=="
+			model := models.Terraform{
+				RegistryCredentials: []models.RegistryCredential{
+					{Host: "registry.example.com", Token: token},
+				},
+			}
+			Expect(model.RegistryTokenEnvVars()).To(Equal([]string{
+				"TF_TOKEN_registry_example_com=" + token,
+			}))
+		})
+	})
+
 	Describe("PrivateKey", func() {
 		It("returns the key from original", func() {
 			baseModel := models.Terraform{

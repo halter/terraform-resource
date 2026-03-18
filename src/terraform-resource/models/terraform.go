@@ -9,6 +9,11 @@ import (
 	yaml "gopkg.in/yaml.v2"
 )
 
+type RegistryCredential struct {
+	Host  string `json:"host"`  // e.g. "registry.example.com"
+	Token string `json:"token"` // pre-generated bearer token
+}
+
 type Terraform struct {
 	Source                string                 `json:"terraform_source"`
 	Vars                  map[string]interface{} `json:"vars,omitempty"`                  // optional
@@ -21,6 +26,7 @@ type Terraform struct {
 	ImportFiles           []string               `json:"import_files,omitempty"`          // optional
 	OverrideFiles         []string               `json:"override_files,omitempty"`        // optional
 	ModuleOverrideFiles   []map[string]string    `json:"module_override_files,omitempty"` // optional
+	RegistryCredentials   []RegistryCredential   `json:"registry_credentials,omitempty"`  // optional
 	PluginDir             string                 `json:"plugin_dir,omitempty"`            // optional
 	BackendType           string                 `json:"backend_type,omitempty"`          // optional
 	BackendConfig         map[string]interface{} `json:"backend_config,omitempty"`        // optional
@@ -35,6 +41,20 @@ type Terraform struct {
 	Imports               map[string]string      `json:"-"` // not specified pipeline
 	ConvertedVarFiles     []string               `json:"-"` // not specified pipeline
 	DownloadPlugins       bool                   `json:"-"` // not specified pipeline
+}
+
+// RegistryTokenEnvVars returns TF_TOKEN_* environment variable pairs for
+// authenticating with private Terraform registries. Dots and hyphens in the
+// hostname are replaced with underscores per the Terraform CLI spec.
+func (m Terraform) RegistryTokenEnvVars() []string {
+	var envVars []string
+	for _, cred := range m.RegistryCredentials {
+		if cred.Host != "" && cred.Token != "" {
+			sanitisedHost := strings.NewReplacer(".", "_", "-", "_").Replace(cred.Host)
+			envVars = append(envVars, fmt.Sprintf("TF_TOKEN_%s=%s", sanitisedHost, cred.Token))
+		}
+	}
+	return envVars
 }
 
 const (
@@ -115,6 +135,10 @@ func (m Terraform) Merge(other Terraform) Terraform {
 
 	if other.ImportFiles != nil {
 		m.ImportFiles = other.ImportFiles
+	}
+
+	if other.RegistryCredentials != nil {
+		m.RegistryCredentials = other.RegistryCredentials
 	}
 
 	if other.OverrideFiles != nil {
