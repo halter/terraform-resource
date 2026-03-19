@@ -28,8 +28,10 @@ jobs:
 
   - name: create-version-pipelines
     plan:
-      - get: resource-src
-        trigger: true
+      - in_parallel:
+        - get: terraform-github-release
+          trigger: true
+        - get: resource-src
       - task: discover-terraform-versions
         file: resource-src/ci/tasks/discover-terraform-versions.yml
         params:
