@@ -3,28 +3,13 @@ jobs:
     plan:
       - get: one-hour
         trigger: true
-  - name: auto-bump-terraform
+  - name: set-pipeline
     plan:
-      - in_parallel:
-        - get: terraform-github-release
-          trigger: true
-        - get: resource-src
-      - task: bump-terraform-cli
-        file: resource-src/ci/tasks/bump-terraform-cli.yml
-      - task: git-commit
-        file: resource-src/ci/tasks/git-commit.yml
-        input_mapping: {input-src: updated-resource-src}
-        output_mapping: {output-src: committed-resource-src}
-        params:
-          GIT_ADD_ARGS: ./config/terraform-version
-          GIT_COMMIT_MSG: ":airplane: Auto-commit: Bumping Terraform CLI version"
-          GIT_COMMIT_USERNAME: friendly-ci
-          GIT_COMMIT_EMAIL: "webops@halter.co.nz"
-          GIT_SUCCEED_ON_NO_CHANGES: true
-      - put: resource-src
-        params:
-          repository: committed-resource-src/
-          rebase: true
+      - get: resource-src
+        trigger: true
+      - set_pipeline: self
+        file: resource-src/ci/pipeline.yml
+
 
   - name: create-version-pipelines
     plan:
