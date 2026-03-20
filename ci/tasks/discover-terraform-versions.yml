@@ -14,7 +14,7 @@ outputs:
 - name: terraform-versions
 
 params:
-  MIN_VERSION: "1.9.8"
+  MIN_VERSION: "1.9.4"
   GITHUB_TOKEN: ""
 
 run:
