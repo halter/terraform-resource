@@ -5,7 +5,7 @@ set -eu -o pipefail
 workspace_dir="$(cd "$(dirname "$0")" && cd ../.. && cd .. && pwd)"
 
 # env
-: ${MIN_VERSION:="1.9.8"}
+: ${MIN_VERSION:="1.9.4"}
 
 # outputs
 output_dir="${workspace_dir}/terraform-versions"
