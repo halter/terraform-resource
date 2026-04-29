@@ -398,7 +398,10 @@ func (c *client) Output(envName string) (map[string]map[string]interface{}, erro
 	}
 
 	tfOutput := map[string]map[string]interface{}{}
-	if err = json.Unmarshal(rawOutput, &tfOutput); err != nil {
+	// Use Decoder rather than Unmarshal so trailing data is ignored.
+	// Terraform 1.15's `output -json` can append backend deprecation warnings
+	// to stdout after the JSON value, which Unmarshal rejects.
+	if err = json.NewDecoder(bytes.NewReader(rawOutput)).Decode(&tfOutput); err != nil {
 		return nil, fmt.Errorf("Failed to unmarshal JSON output.\nError: %s\nOutput: %s", err, rawOutput)
 	}
 
@@ -430,7 +433,7 @@ func (c *client) OutputWithLegacyStorage() (map[string]map[string]interface{}, e
 	}
 
 	tfOutput := map[string]map[string]interface{}{}
-	if err = json.Unmarshal(rawOutput, &tfOutput); err != nil {
+	if err = json.NewDecoder(bytes.NewReader(rawOutput)).Decode(&tfOutput); err != nil {
 		return nil, fmt.Errorf("Failed to unmarshal JSON output.\nError: %s\nOutput: %s", err, rawOutput)
 	}
 
