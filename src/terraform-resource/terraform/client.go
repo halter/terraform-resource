@@ -382,6 +382,7 @@ func (c *client) JSONPlan() error {
 func (c *client) Output(envName string) (map[string]map[string]interface{}, error) {
 	outputArgs := []string{
 		"output",
+		"-no-color",
 		"-json",
 	}
 	outputCmd, err := c.terraformCmd(outputArgs, []string{
@@ -407,6 +408,7 @@ func (c *client) Output(envName string) (map[string]map[string]interface{}, erro
 func (c *client) OutputWithLegacyStorage() (map[string]map[string]interface{}, error) {
 	outputArgs := []string{
 		"output",
+		"-no-color",
 		"-json",
 		fmt.Sprintf("-state=%s", c.model.StateFileLocalPath),
 	}
@@ -689,6 +691,7 @@ func (c *client) StatePull(envName string) ([]byte, error) {
 	cmd, err := c.terraformCmd([]string{
 		"state",
 		"pull",
+		"-no-color",
 	}, []string{
 		fmt.Sprintf("TF_WORKSPACE=%s", envName),
 	})
