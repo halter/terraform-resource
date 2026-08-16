@@ -197,6 +197,30 @@ some_hcl_key = "some_hcl_value"
 		})
 	})
 
+	Describe("LockTimeout", func() {
+		It("overrides base lock timeout when merged model has a lock timeout", func() {
+			baseModel := models.Terraform{
+				LockTimeout: "1m",
+			}
+			mergeModel := models.Terraform{
+				LockTimeout: "5m",
+			}
+
+			finalModel := baseModel.Merge(mergeModel)
+			Expect(finalModel.LockTimeout).To(Equal("5m"))
+		})
+
+		It("preserves base lock timeout when merged model has no lock timeout", func() {
+			baseModel := models.Terraform{
+				LockTimeout: "5m",
+			}
+			mergeModel := models.Terraform{}
+
+			finalModel := baseModel.Merge(mergeModel)
+			Expect(finalModel.LockTimeout).To(Equal("5m"))
+		})
+	})
+
 	Describe("RegistryCredentials", func() {
 		It("overrides base credentials when merged model has credentials", func() {
 			baseModel := models.Terraform{
