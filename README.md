@@ -31,6 +31,8 @@ See [Terraform Input Variables](https://www.terraform.io/language/values/variabl
 
 * `registry_credentials`: *Optional.* A list of private Terraform registry credentials. Each entry has a `host` (e.g. `registry.example.com`) and a `token` (a pre-generated bearer token). These are injected as [`TF_TOKEN_*` environment variables](https://developer.hashicorp.com/terraform/cli/config/config-file#environment-variable-credentials) so that `terraform init` can authenticate with private registries.
 
+* `lock_timeout`: *Optional. Default `0s`* Duration to retry a state lock. Applies to every `put` against this resource. See the [Terraform docs](https://www.terraform.io/cli/commands/apply#lock-timeout-duration) for more information.
+
 #### Source Example
 
 ```yaml
@@ -148,7 +150,7 @@ The source file is specified with `src` and the destination directory with `dst`
 
 * `parallelism`: *Optional. Default `10`* This int limit the number of concurrent operations Terraform will perform. See the [Terraform docs](https://www.terraform.io/docs/cli/commands/apply.html#parallelism-n) for more information.
 
-* `lock_timeout`: *Optional. Default `0s`* Duration to retry a state lock. See the [Terraform docs](https://www.terraform.io/cli/commands/apply#lock-timeout-duration) for more information.
+* `lock_timeout`: *Optional. Default `0s`* Duration to retry a state lock. See description under `source.lock_timeout`.
 
 #### Put Example
 

@@ -169,6 +169,10 @@ func (m Terraform) Merge(other Terraform) Terraform {
 		m.Parallelism = other.Parallelism
 	}
 
+	if other.LockTimeout != "" {
+		m.LockTimeout = other.LockTimeout
+	}
+
 	return m
 }
 
