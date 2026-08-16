@@ -62,8 +62,17 @@ const (
 	PlanContentJSON = "plan_content_json"
 )
 
+const DefaultLockTimeout = "300s"
+
 func (m Terraform) Validate() error {
 	return nil
+}
+
+func (m Terraform) LockTimeoutOrDefault() string {
+	if m.LockTimeout != "" {
+		return m.LockTimeout
+	}
+	return DefaultLockTimeout
 }
 
 func (m Terraform) Merge(other Terraform) Terraform {
