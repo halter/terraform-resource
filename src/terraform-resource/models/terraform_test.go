@@ -221,6 +221,22 @@ some_hcl_key = "some_hcl_value"
 		})
 	})
 
+	Describe("LockTimeoutOrDefault", func() {
+		It("returns the configured lock timeout when set", func() {
+			model := models.Terraform{
+				LockTimeout: "10m",
+			}
+
+			Expect(model.LockTimeoutOrDefault()).To(Equal("10m"))
+		})
+
+		It("returns the default lock timeout when unset", func() {
+			model := models.Terraform{}
+
+			Expect(model.LockTimeoutOrDefault()).To(Equal("300s"))
+		})
+	})
+
 	Describe("RegistryCredentials", func() {
 		It("overrides base credentials when merged model has credentials", func() {
 			baseModel := models.Terraform{
