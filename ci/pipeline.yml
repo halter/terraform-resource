@@ -118,9 +118,11 @@ resource_types:
   - name: pull-request
     type: registry-image
     source:
-      repository: teliaoss/github-pr-resource
-      registry_mirror:
-        host: container-registry.tools.halter.io
+      repository: docker-hub/teliaoss/github-pr-resource
+      tag: latest
+      aws_access_key_id: ((tools-aws-access-key-id))
+      aws_secret_access_key: ((tools-aws-secret-access-key))
+      aws_region: ap-southeast-2
 
 resources:
 - name: one-hour
