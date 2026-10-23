@@ -37,6 +37,8 @@ jobs:
           params:
             IMAGE_PLATFORM: linux/amd64
             DOCKERFILE: Dockerfile
+            ID_TOKEN: ((idtoken:token))
+            ECR_ROLE_ARN: arn:aws:iam::156399527556:role/concourse-oidc-ecr-pull
           input_mapping:
             context: build-artifacts
           output_mapping:
@@ -47,6 +49,8 @@ jobs:
           params:
             IMAGE_PLATFORM: linux/arm64
             DOCKERFILE: Dockerfile
+            ID_TOKEN: ((idtoken:token))
+            ECR_ROLE_ARN: arn:aws:iam::156399527556:role/concourse-oidc-ecr-pull
           input_mapping:
             context: build-artifacts
           output_mapping:
@@ -73,6 +77,13 @@ jobs:
           REPOSITORY: halternz/terraform-resource
           USERNAME: ((dockerhub-username))
           PASSWORD: ((dockerhub-password))
+
+# build-v2 logs in to the ECR mirrors with this token.
+var_sources:
+  - name: idtoken
+    type: idtoken
+    config:
+      audience: [sts.amazonaws.com]
 
 resources:
 - name: tasks
