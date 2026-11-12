@@ -92,8 +92,8 @@ resources:
     region_name: ap-southeast-2
     bucket: halter-artifact-store
     regexp: concourse-tasks/tasks/package-(\d+\.\d+\.\d+).tar.gz
-    access_key_id: ((tools-aws-access-key-id))
-    secret_access_key: ((tools-aws-secret-access-key))
+    access_key_id: ((tools-pull-only-aws-access-key-id))
+    secret_access_key: ((tools-pull-only-aws-secret-access-key))
 - name: resource-src
   type: git
   source:
