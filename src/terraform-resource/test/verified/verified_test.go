@@ -255,7 +255,7 @@ func TestDeadlineRejectedBeforeAnyTerraformCLI(t *testing.T) {
 }
 
 func TestDeadlinePresenceFromConcourseJSON(t *testing.T) {
-	for _, raw := range []string{`{"verification_deadline":""}`, `{"verification_deadline":null}`, `{"Verification_Deadline":""}`} {
+	for _, raw := range []string{`{"verification_deadline":""}`} {
 		t.Run(raw, func(t *testing.T) {
 			h := setup(t)
 			t.Setenv("FAKE_RECORD", "1")
@@ -268,6 +268,11 @@ func TestDeadlinePresenceFromConcourseJSON(t *testing.T) {
 			r.Params = parsed
 			if _, err := h.runner().Run(r); err == nil || err.Error() != verified.ErrInvalid.Error() {
 				t.Fatal("explicit empty deadline ignored")
+			}
+			r.Params.VerifiedPlan, r.Params.PlanOnly, r.Params.PlanRun = true, false, true
+			r.Params.ExpectedPlanChecksum = verified.DigestBytes([]byte("fixture-plan"))
+			if _, err := h.runner().Run(r); err == nil || err.Error() != verified.ErrInvalid.Error() || h.applied() {
+				t.Fatal("empty verified deadline accepted")
 			}
 			if _, err := os.Stat(filepath.Join(h.dir, "calls")); !os.IsNotExist(err) {
 				t.Fatal("terraform CLI ran")
@@ -294,6 +299,71 @@ func TestDeadlinePresenceFromConcourseJSON(t *testing.T) {
 	}
 	if _, err = h.runner().Run(roundtrip); err != nil || !h.applied() {
 		t.Fatal("verified decoded input failed")
+	}
+}
+
+func TestDeadlineJSONRejectsDuplicateAliasesAndInvalidTypes(t *testing.T) {
+	cases := map[string]string{
+		"valid then null":  `{"verification_deadline":"2026-11-15T20:01:00Z","verification_deadline":null}`,
+		"null then valid":  `{"verification_deadline":null,"verification_deadline":"2026-11-15T20:01:00Z"}`,
+		"duplicate valid":  `{"verification_deadline":"2026-11-15T20:01:00Z","verification_deadline":"2026-11-15T20:01:00Z"}`,
+		"valid then empty": `{"verification_deadline":"2026-11-15T20:01:00Z","verification_deadline":""}`,
+		"case alias":       `{"Verification_Deadline":"2026-11-15T20:01:00Z"}`,
+		"mixed alias":      `{"verification_deadline":"2026-11-15T20:01:00Z","Verification_Deadline":"2026-11-15T20:01:00Z"}`,
+		"null":             `{"verification_deadline":null}`,
+		"number":           `{"verification_deadline":42}`,
+		"object":           `{"verification_deadline":{"data":"PRIVATE-CANARY"}}`,
+		"boolean":          `{"verification_deadline":false}`,
+	}
+	for name, raw := range cases {
+		t.Run(name, func(t *testing.T) {
+			h := setup(t)
+			t.Setenv("FAKE_RECORD", "1")
+			r := h.req
+			r.Params.SensitivePlan, r.Params.VerifiedPlan = false, true
+			r.Params.PlanOnly, r.Params.PlanRun = false, true
+			r.Params.ExpectedPlanChecksum = verified.DigestBytes([]byte("fixture-plan"))
+			r.Params.VerificationDeadline = h.deadline()
+			if err := json.Unmarshal([]byte(raw), &r.Params); err == nil || err.Error() != "invalid verification_deadline" {
+				t.Fatal("invalid deadline JSON not rejected safely")
+			}
+			// Even a buggy caller ignoring the decode error cannot reuse consent.
+			if r.Params.HasVerificationDeadline() || r.Params.VerificationDeadline != "" {
+				t.Fatal("prior deadline survived failed decode")
+			}
+			if _, err := h.runner().Run(r); err == nil || err.Error() != verified.ErrInvalid.Error() || h.applied() || strings.Contains(h.logs.String(), "PRIVATE-CANARY") {
+				t.Fatal("unsafe request ran")
+			}
+			if _, err := os.Stat(filepath.Join(h.dir, "calls")); !os.IsNotExist(err) {
+				t.Fatal("Terraform CLI ran")
+			}
+		})
+	}
+}
+
+func TestDeadlineJSONReuseResetsOnlyDeadline(t *testing.T) {
+	h := setup(t)
+	t.Setenv("FAKE_RECORD", "1")
+	r := h.req
+	r.Params.SensitivePlan, r.Params.VerifiedPlan = false, true
+	r.Params.PlanOnly, r.Params.PlanRun = false, true
+	r.Params.ExpectedPlanChecksum = verified.DigestBytes([]byte("fixture-plan"))
+	if err := json.Unmarshal([]byte(`{"verification_deadline":"2026-11-15T20:01:00Z"}`), &r.Params); err != nil || !r.Params.HasVerificationDeadline() {
+		t.Fatal("valid deadline decode failed")
+	}
+	// Duplicates of legacy fields retain the old last-value-wins behavior;
+	// a same-named nested variable is unrelated to the new top-level field.
+	if err := json.Unmarshal([]byte(`{"env_name":"old","env_name":"tools","env":{"verification_deadline":"nested"}}`), &r.Params); err != nil {
+		t.Fatal(err)
+	}
+	if r.Params.HasVerificationDeadline() || r.Params.VerificationDeadline != "" || r.Params.EnvName != "tools" || r.Params.Env["verification_deadline"] != "nested" || !r.Params.VerifiedPlan || !r.Params.PlanRun {
+		t.Fatal("reused decode retained deadline or changed legacy fields")
+	}
+	if _, err := h.runner().Run(r); err == nil || err.Error() != verified.ErrInvalid.Error() || h.applied() {
+		t.Fatal("stale reused deadline authorized apply")
+	}
+	if _, err := os.Stat(filepath.Join(h.dir, "calls")); !os.IsNotExist(err) {
+		t.Fatal("Terraform CLI ran")
 	}
 }
 

@@ -1,7 +1,9 @@
 package models
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"strings"
 )
 
@@ -28,25 +30,54 @@ type OutParams struct {
 	Terraform
 }
 
-// UnmarshalJSON retains presence, including empty or null, so a deadline sent
-// without verification cannot be silently ignored. Other fields retain the
-// standard decoder's behavior and Terraform's existing embedded schema.
+// UnmarshalJSON validates only the new deadline field strictly. Legacy fields
+// retain the standard decoder's behavior and Terraform's embedded schema.
 func (p *OutParams) UnmarshalJSON(b []byte) error {
+	// A reused value must never carry a stale deadline into a new request,
+	// including when the new JSON fails to decode.
+	p.VerificationDeadline = ""
+	p.verificationDeadlinePresent = false
+
+	d := json.NewDecoder(bytes.NewReader(b))
+	token, err := d.Token()
+	if err != nil {
+		return err
+	}
+	seen := false
+	deadline := ""
+	if delim, ok := token.(json.Delim); ok && delim == '{' {
+		for d.More() {
+			name, err := d.Token()
+			if err != nil {
+				return err
+			}
+			key, ok := name.(string)
+			if !ok {
+				return errors.New("invalid verification_deadline")
+			}
+			var value json.RawMessage
+			if err := d.Decode(&value); err != nil {
+				return err
+			}
+			if strings.EqualFold(key, "verification_deadline") {
+				if key != "verification_deadline" || seen || len(value) == 0 || value[0] != '"' || json.Unmarshal(value, &deadline) != nil {
+					return errors.New("invalid verification_deadline")
+				}
+				seen = true
+			}
+		}
+		if _, err := d.Token(); err != nil {
+			return err
+		}
+	}
 	type plain OutParams
 	decoded := plain(*p)
 	if err := json.Unmarshal(b, &decoded); err != nil {
 		return err
 	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(b, &fields); err != nil {
-		return err
-	}
+	decoded.VerificationDeadline = deadline
+	decoded.verificationDeadlinePresent = seen
 	*p = OutParams(decoded)
-	for key := range fields {
-		if strings.EqualFold(key, "verification_deadline") {
-			p.verificationDeadlinePresent = true
-		}
-	}
 	return nil
 }
 
