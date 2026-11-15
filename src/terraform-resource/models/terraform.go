@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"strings"
+	"time"
 
 	yamlConverter "github.com/ghodss/yaml"
 	yaml "gopkg.in/yaml.v2"
@@ -41,6 +42,9 @@ type Terraform struct {
 	Imports               map[string]string      `json:"-"` // not specified pipeline
 	ConvertedVarFiles     []string               `json:"-"` // not specified pipeline
 	DownloadPlugins       bool                   `json:"-"` // not specified pipeline
+	SuppressOutput        bool                   `json:"-"`
+	ExpectedPlanChecksum  string                 `json:"-"`
+	VerificationDeadline  time.Time              `json:"-"`
 }
 
 // RegistryTokenEnvVars returns TF_TOKEN_* environment variable pairs for

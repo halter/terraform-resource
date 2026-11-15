@@ -34,4 +34,4 @@ RUN chmod 0600 $HOME/.ssh/config
 
 COPY $TARGETARCH/terraform/* /usr/local/bin/
 RUN terraform --version
-COPY $TARGETARCH/check $TARGETARCH/in $TARGETARCH/out /opt/resource/
+COPY $TARGETARCH/check $TARGETARCH/in $TARGETARCH/out $TARGETARCH/capabilities /opt/resource/

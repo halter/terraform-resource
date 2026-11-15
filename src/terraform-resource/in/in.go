@@ -17,6 +17,7 @@ import (
 	"github.com/ljfranklin/terraform-resource/models"
 	"github.com/ljfranklin/terraform-resource/storage"
 	"github.com/ljfranklin/terraform-resource/terraform"
+	"github.com/ljfranklin/terraform-resource/verified"
 )
 
 type Runner struct {
@@ -29,6 +30,105 @@ type EnvNotFoundError error
 var ErrOutputModule error = errors.New("the `output_module` feature was removed in Terraform 0.12.0, you must now explicitly declare all outputs in the root module")
 
 func (r Runner) Run(req models.InRequest) (models.InResponse, error) {
+	if req.Params.VerifiedPlan || req.Params.VerifiedApplyResult {
+		r.LogWriter = ioutil.Discard
+		resp, err := r.runVerified(req)
+		if err != nil {
+			return models.InResponse{}, verified.ErrInvalid
+		}
+		return resp, nil
+	}
+	return r.run(req)
+}
+
+func (r Runner) runVerified(req models.InRequest) (models.InResponse, error) {
+	if req.Params.VerifiedPlan == req.Params.VerifiedApplyResult || req.Params.Action != "" || req.Params.OutputStatefile || req.Params.OutputModule != "" || !verified.ValidEnvironment(req.Version.EnvName) || req.Version.Validate() != nil {
+		return models.InResponse{}, verified.ErrInvalid
+	}
+	if req.Params.VerifiedApplyResult {
+		if req.Version.IsPlan() || req.Version.VerifiedProtocol != verified.Protocol || !verified.ValidHash(req.Version.AppliedPlanChecksum) {
+			return models.InResponse{}, verified.ErrInvalid
+		}
+		err := verified.WriteJSON(path.Join(r.OutputDir, "apply-result.json"), verified.ApplyResult{Protocol: verified.Protocol, Environment: req.Version.EnvName, AppliedBinarySHA256: req.Version.AppliedPlanChecksum, SourceVersion: verified.SourceVersion})
+		return models.InResponse{Version: req.Version}, err
+	}
+	if !req.Version.IsPlan() || req.Version.VerifiedProtocol != verified.Protocol || !verified.ValidHash(req.Version.PlanChecksum) || !verified.ValidHash(req.Version.PlanJSONChecksum) || req.Source.BackendType == "" || req.Source.BackendType == "local" || req.Params.BackendType != "" || req.Source.MigratedFromStorage != (storage.Model{}) {
+		return models.InResponse{}, verified.ErrInvalid
+	}
+	if err := req.Source.Validate(); err != nil {
+		return models.InResponse{}, err
+	}
+	tmp, err := ioutil.TempDir("", "terraform-resource-verified-in")
+	if err != nil {
+		return models.InResponse{}, err
+	}
+	defer os.RemoveAll(tmp)
+	model := req.Source.Terraform.Merge(req.Params.Terraform)
+	model.Source = "."
+	model.PlanFileLocalPath = path.Join(tmp, "plan")
+	model.JSONPlanFileLocalPath = path.Join(tmp, "plan.json")
+	model.SuppressOutput = true
+	client := terraform.NewClient(model, ioutil.Discard)
+	if err = client.InitWithBackend(); err != nil {
+		return models.InResponse{}, err
+	}
+	if err = client.GetPlanFromBackend(req.Version.EnvName + "-plan"); err != nil {
+		return models.InResponse{}, err
+	}
+	if err = verified.Verify(model.PlanFileLocalPath, req.Version.PlanChecksum); err != nil {
+		return models.InResponse{}, err
+	}
+	outputs, err := client.Output(req.Version.EnvName + "-plan")
+	if err != nil {
+		return models.InResponse{}, err
+	}
+	value, ok := outputs[models.PlanContentJSON]
+	if !ok {
+		return models.InResponse{}, verified.ErrInvalid
+	}
+	encoded, ok := value["value"].(string)
+	if !ok {
+		return models.InResponse{}, verified.ErrInvalid
+	}
+	zr, err := gzip.NewReader(base64.NewDecoder(base64.StdEncoding, strings.NewReader(encoded)))
+	if err != nil {
+		return models.InResponse{}, err
+	}
+	jsonBytes, err := ioutil.ReadAll(io.LimitReader(zr, 128*1024*1024+1))
+	closeErr := zr.Close()
+	if err != nil || closeErr != nil || len(jsonBytes) > 128*1024*1024 || verified.DigestBytes(jsonBytes) != req.Version.PlanJSONChecksum {
+		return models.InResponse{}, verified.ErrInvalid
+	}
+	v, err := client.Version()
+	if err != nil {
+		return models.InResponse{}, err
+	}
+	v, err = verified.TerraformVersion(v)
+	if err != nil {
+		return models.InResponse{}, err
+	}
+	binary, err := ioutil.ReadFile(model.PlanFileLocalPath)
+	if err != nil || verified.DigestBytes(binary) != req.Version.PlanChecksum {
+		return models.InResponse{}, verified.ErrInvalid
+	}
+	binaryPath, planPath := path.Join(r.OutputDir, "plan.tfplan"), path.Join(r.OutputDir, "plan.json")
+	if err = verified.WriteBytes(binaryPath, binary); err != nil {
+		return models.InResponse{}, err
+	}
+	if err = verified.WriteBytes(planPath, jsonBytes); err != nil {
+		os.Remove(binaryPath)
+		return models.InResponse{}, err
+	}
+	metadata := verified.PlanMetadata{Protocol: verified.Protocol, Environment: req.Version.EnvName, TerraformVersion: v, BinarySHA256: req.Version.PlanChecksum, JSONSHA256: verified.DigestBytes(jsonBytes), SourceVersion: verified.SourceVersion}
+	if err = verified.WriteJSON(path.Join(r.OutputDir, "plan-metadata.json"), metadata); err != nil {
+		os.Remove(binaryPath)
+		os.Remove(planPath)
+		return models.InResponse{}, err
+	}
+	return models.InResponse{Version: req.Version}, nil
+}
+
+func (r Runner) run(req models.InRequest) (models.InResponse, error) {
 	if err := req.Version.Validate(); err != nil {
 		return models.InResponse{}, fmt.Errorf("Invalid Version request: %s", err)
 	}

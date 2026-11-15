@@ -15,12 +15,15 @@ const (
 )
 
 type Version struct {
-	Serial       string `json:"serial"`
-	EnvName      string `json:"env_name"`
-	Lineage      string `json:"lineage,omitempty"`       // omitted on older version
-	LastModified string `json:"last_modified,omitempty"` // optional
-	PlanOnly     string `json:"plan_only,omitempty"`     //optional
-	PlanChecksum string `json:"plan_checksum,omitempty"` //optional
+	Serial              string `json:"serial"`
+	EnvName             string `json:"env_name"`
+	Lineage             string `json:"lineage,omitempty"`       // omitted on older version
+	LastModified        string `json:"last_modified,omitempty"` // optional
+	PlanOnly            string `json:"plan_only,omitempty"`     //optional
+	PlanChecksum        string `json:"plan_checksum,omitempty"` //optional
+	PlanJSONChecksum    string `json:"plan_json_checksum,omitempty"`
+	VerifiedProtocol    string `json:"verified_protocol,omitempty"`
+	AppliedPlanChecksum string `json:"applied_plan_checksum,omitempty"`
 }
 
 func NewVersionFromLegacyStorage(storageVersion storage.Version) Version {
