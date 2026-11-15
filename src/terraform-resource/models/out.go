@@ -11,10 +11,13 @@ type OutResponse struct {
 }
 
 type OutParams struct {
-	EnvName            string `json:"env_name"`
-	EnvNameFile        string `json:"env_name_file"`
-	GenerateRandomName bool   `json:"generate_random_name"`
-	Action             string `json:"action,omitempty"` // optional
+	SensitivePlan        bool   `json:"sensitive_plan,omitempty"`
+	VerifiedPlan         bool   `json:"verified_plan,omitempty"`
+	ExpectedPlanChecksum string `json:"expected_plan_checksum,omitempty"`
+	EnvName              string `json:"env_name"`
+	EnvNameFile          string `json:"env_name_file"`
+	GenerateRandomName   bool   `json:"generate_random_name"`
+	Action               string `json:"action,omitempty"` // optional
 	Terraform
 }
 

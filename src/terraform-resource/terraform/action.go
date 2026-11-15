@@ -3,13 +3,14 @@ package terraform
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/ljfranklin/terraform-resource/logger"
+	"github.com/ljfranklin/terraform-resource/models"
+	"github.com/ljfranklin/terraform-resource/verified"
 	"os"
 	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"github.com/ljfranklin/terraform-resource/logger"
-	"github.com/ljfranklin/terraform-resource/models"
 )
 
 type Action struct {
@@ -102,7 +103,11 @@ func (a *Action) attemptApply() (Result, error) {
 		}
 	}
 
-	if err := a.Client.WorkspaceNewIfNotExists(a.EnvName); err != nil {
+	if a.Model.SuppressOutput {
+		if err := a.Client.WorkspaceSelect(a.EnvName); err != nil {
+			return Result{}, err
+		}
+	} else if err := a.Client.WorkspaceNewIfNotExists(a.EnvName); err != nil {
 		return Result{}, err
 	}
 
@@ -112,6 +117,11 @@ func (a *Action) attemptApply() (Result, error) {
 		}
 	}
 
+	if a.Model.SuppressOutput {
+		if err := verified.Verify(a.Model.PlanFileLocalPath, a.Model.ExpectedPlanChecksum); err != nil {
+			return Result{}, err
+		}
+	}
 	if err := a.Client.Apply(); err != nil {
 		return Result{}, err
 	}
@@ -120,9 +130,12 @@ func (a *Action) attemptApply() (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	clientOutput, err := a.Client.Output(a.EnvName)
-	if err != nil {
-		return Result{}, err
+	clientOutput := map[string]map[string]interface{}{}
+	if !a.Model.SuppressOutput {
+		clientOutput, err = a.Client.Output(a.EnvName)
+		if err != nil {
+			return Result{}, err
+		}
 	}
 
 	if err := a.deletePlanWorkspaceIfExists(); err != nil {
@@ -208,12 +221,17 @@ func (a *Action) attemptPlan() (Result, error) {
 	a.Logger.InfoSection("Terraform Plan")
 	defer a.Logger.EndSection()
 
-	if err := a.Client.WorkspaceNewIfNotExists(a.EnvName); err != nil {
-		return Result{}, err
-	}
-
-	if err := a.Client.Import(a.EnvName); err != nil {
-		return Result{}, err
+	if a.Model.SuppressOutput {
+		if err := a.Client.WorkspaceSelect(a.EnvName); err != nil {
+			return Result{}, err
+		}
+	} else {
+		if err := a.Client.WorkspaceNewIfNotExists(a.EnvName); err != nil {
+			return Result{}, err
+		}
+		if err := a.Client.Import(a.EnvName); err != nil {
+			return Result{}, err
+		}
 	}
 
 	checksum, err := a.Client.Plan()
@@ -226,15 +244,34 @@ func (a *Action) attemptPlan() (Result, error) {
 		return Result{}, err
 	}
 
+	jsonChecksum := ""
+	if a.Model.SuppressOutput {
+		if err = verified.Verify(a.Model.PlanFileLocalPath, checksum); err != nil {
+			return Result{}, err
+		}
+		jsonChecksum, err = verified.Checksum(a.Model.JSONPlanFileLocalPath)
+		if err != nil {
+			return Result{}, err
+		}
+	}
 	if err = a.Client.SavePlanToBackend(a.planNameForEnv()); err != nil {
 		return Result{}, err
+	}
+	if a.Model.SuppressOutput {
+		if err = verified.Verify(a.Model.PlanFileLocalPath, checksum); err != nil {
+			return Result{}, err
+		}
+		if err = verified.Verify(a.Model.JSONPlanFileLocalPath, jsonChecksum); err != nil {
+			return Result{}, err
+		}
 	}
 
 	return Result{
 		Output: map[string]map[string]interface{}{},
 		Version: models.Version{
-			EnvName:      a.EnvName,
-			PlanChecksum: checksum,
+			EnvName:          a.EnvName,
+			PlanChecksum:     checksum,
+			PlanJSONChecksum: jsonChecksum,
 		},
 	}, nil
 }

@@ -14,15 +14,77 @@ import (
 	"github.com/ljfranklin/terraform-resource/ssh"
 	"github.com/ljfranklin/terraform-resource/storage"
 	"github.com/ljfranklin/terraform-resource/terraform"
+	"github.com/ljfranklin/terraform-resource/verified"
 )
 
 type Runner struct {
 	SourceDir string
 	Namer     namer.Namer
 	LogWriter io.Writer
+	strict    bool
 }
 
 func (r Runner) Run(req models.OutRequest) (models.OutResponse, error) {
+	strict := req.Params.SensitivePlan || req.Params.VerifiedPlan
+	if strict {
+		r.LogWriter = ioutil.Discard
+		r.strict = true
+		resp, err := r.runStrict(req)
+		if err != nil {
+			return models.OutResponse{}, verified.ErrInvalid
+		}
+		resp.Metadata = nil
+		return resp, nil
+	}
+	if req.Params.ExpectedPlanChecksum != "" {
+		return models.OutResponse{}, verified.ErrInvalid
+	}
+	return r.run(req)
+}
+
+func (r Runner) runStrict(req models.OutRequest) (models.OutResponse, error) {
+	m := req.Source.Terraform.Merge(req.Params.Terraform)
+	env := req.Params.EnvName
+	if env == "" {
+		env = req.Source.EnvName
+	}
+	if !verified.ValidEnvironment(env) || req.Params.EnvNameFile != "" || req.Params.GenerateRandomName {
+		return models.OutResponse{}, verified.ErrInvalid
+	}
+	if m.BackendType == "" || m.BackendType == "local" || req.Params.BackendType != "" || req.Source.MigratedFromStorage != (storage.Model{}) ||
+		req.Params.Action != "" || m.DeleteOnFailure || len(m.ImportFiles) != 0 || len(m.Imports) != 0 ||
+		req.Params.SensitivePlan == req.Params.VerifiedPlan {
+		return models.OutResponse{}, verified.ErrInvalid
+	}
+	if req.Params.SensitivePlan {
+		if !req.Params.PlanOnly || !m.PlanOnly || m.PlanRun || req.Params.ExpectedPlanChecksum != "" {
+			return models.OutResponse{}, verified.ErrInvalid
+		}
+	} else {
+		if m.PlanOnly || !m.PlanRun {
+			return models.OutResponse{}, verified.ErrInvalid
+		}
+		expected := req.Params.ExpectedPlanChecksum
+		if !verified.ValidHash(expected) {
+			return models.OutResponse{}, verified.ErrInvalid
+		}
+		req.Source.Terraform.ExpectedPlanChecksum = expected
+	}
+	req.Source.Terraform.SuppressOutput = true
+	resp, err := r.run(req)
+	if err != nil {
+		return models.OutResponse{}, err
+	}
+	resp.Version.VerifiedProtocol = verified.Protocol
+	if req.Params.VerifiedPlan {
+		resp.Version.AppliedPlanChecksum = req.Source.Terraform.ExpectedPlanChecksum
+	} else if !verified.ValidHash(resp.Version.PlanChecksum) || !verified.ValidHash(resp.Version.PlanJSONChecksum) || !resp.Version.IsPlan() {
+		return models.OutResponse{}, verified.ErrInvalid
+	}
+	return resp, nil
+}
+
+func (r Runner) run(req models.OutRequest) (models.OutResponse, error) {
 	if err := req.Source.Validate(); err != nil {
 		return models.OutResponse{}, err
 	}
@@ -360,6 +422,9 @@ func (r Runner) buildTerraformModel(req models.OutRequest, tmpDir string) (model
 }
 
 func (r Runner) buildMetadata(outputs map[string]string, client terraform.Client) ([]models.MetadataField, error) {
+	if r.strict {
+		return nil, nil
+	}
 	metadata := []models.MetadataField{}
 	for key, value := range outputs {
 		metadata = append(metadata, models.MetadataField{

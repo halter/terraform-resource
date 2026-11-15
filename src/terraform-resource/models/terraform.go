@@ -41,6 +41,8 @@ type Terraform struct {
 	Imports               map[string]string      `json:"-"` // not specified pipeline
 	ConvertedVarFiles     []string               `json:"-"` // not specified pipeline
 	DownloadPlugins       bool                   `json:"-"` // not specified pipeline
+	SuppressOutput        bool                   `json:"-"`
+	ExpectedPlanChecksum  string                 `json:"-"`
 }
 
 // RegistryTokenEnvVars returns TF_TOKEN_* environment variable pairs for

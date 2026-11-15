@@ -365,7 +365,11 @@ func (c *client) JSONPlan() error {
 		return fmt.Errorf("Failed to retrieve output.\nError: %s\nOutput: %s", err, rawOutput)
 	}
 
-	err = ioutil.WriteFile(c.model.JSONPlanFileLocalPath, rawOutput, 0644)
+	mode := os.FileMode(0644)
+	if c.model.SuppressOutput {
+		mode = 0600
+	}
+	err = ioutil.WriteFile(c.model.JSONPlanFileLocalPath, rawOutput, mode)
 	if err != nil {
 		return fmt.Errorf("Failed to write JSON planfile to %s: %s", c.model.JSONPlanFileLocalPath, err)
 	}
@@ -765,12 +769,16 @@ func (c *client) SavePlanToBackend(planEnvName string) error {
 	c.model.Source = tmpDir
 
 	logPath := path.Join(os.TempDir(), "tf-plan.log")
-	logFile, err := os.OpenFile(logPath, os.O_RDWR|os.O_CREATE, 0600)
-	if err != nil {
-		return err
+	if c.model.SuppressOutput {
+		c.logWriter = ioutil.Discard
+	} else {
+		logFile, err := os.OpenFile(logPath, os.O_RDWR|os.O_CREATE, 0600)
+		if err != nil {
+			return err
+		}
+		defer logFile.Close()
+		c.logWriter = logFile // prevent provider from logging creds
 	}
-	defer logFile.Close()
-	c.logWriter = logFile // prevent provider from logging creds
 
 	defer func() {
 		os.Chdir(origDir)
@@ -816,7 +824,11 @@ func (c *client) GetPlanFromBackend(planEnvName string) error {
 
 	var encodedPlan string
 	if val, ok := outputs[models.PlanContent]; ok {
-		encodedPlan = val["value"].(string)
+		var valid bool
+		encodedPlan, valid = val["value"].(string)
+		if !valid {
+			return fmt.Errorf("invalid plan output")
+		}
 	} else {
 		return fmt.Errorf("state has no output for key %s", models.PlanContent)
 	}
@@ -826,7 +838,11 @@ func (c *client) GetPlanFromBackend(planEnvName string) error {
 		return err
 	}
 
-	if err = ioutil.WriteFile(c.model.PlanFileLocalPath, []byte(decodedPlan), 0755); err != nil {
+	mode := os.FileMode(0755)
+	if c.model.SuppressOutput {
+		mode = 0600
+	}
+	if err = ioutil.WriteFile(c.model.PlanFileLocalPath, []byte(decodedPlan), mode); err != nil {
 		return err
 	}
 
@@ -880,6 +896,12 @@ func (c *client) resourceExistsLegacyStorage(tfID string) (bool, error) {
 	return (len(strings.TrimSpace(string(rawOutput))) > 0), nil
 }
 
+// Terraform logging and implicit CLI arguments bypass process output suppression
+// and can alter the command. TF_WORKSPACE must not override our explicit selection.
+func strictForbiddenEnv(key string) bool {
+	return strings.HasPrefix(key, "TF_LOG") || strings.HasPrefix(key, "TF_CLI_ARGS") || key == "TF_WORKSPACE" || key == "TF_REATTACH_PROVIDERS"
+}
+
 func (c *client) terraformCmd(args []string, env []string) (*runner.Runner, error) {
 	cmdPath, err := exec.LookPath("terraform")
 	if err != nil {
@@ -889,6 +911,16 @@ func (c *client) terraformCmd(args []string, env []string) (*runner.Runner, erro
 
 	cmd.Dir = c.model.Source
 	cmd.Env = os.Environ()
+	if c.model.SuppressOutput {
+		filtered := make([]string, 0, len(cmd.Env))
+		for _, entry := range cmd.Env {
+			key := strings.SplitN(entry, "=", 2)[0]
+			if !strictForbiddenEnv(key) {
+				filtered = append(filtered, entry)
+			}
+		}
+		cmd.Env = filtered
+	}
 	cmd.Env = append(cmd.Env, "CHECKPOINT_DISABLE=1")
 	// TODO: remove the following line once this issue is fixed:
 	// https://github.com/hashicorp/terraform/issues/17655
@@ -901,6 +933,9 @@ func (c *client) terraformCmd(args []string, env []string) (*runner.Runner, erro
 	}
 
 	for key, value := range c.model.Env {
+		if c.model.SuppressOutput && strictForbiddenEnv(key) {
+			continue
+		}
 		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", key, value))
 	}
 

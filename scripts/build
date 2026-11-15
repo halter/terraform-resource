@@ -18,5 +18,6 @@ pushd "${release_dir}/src/terraform-resource" > /dev/null
   go build -o "${output_dir}/check" cmd/check/main.go
   go build -o "${output_dir}/in" cmd/in/main.go
   go build -o "${output_dir}/out" cmd/out/main.go
+  go build -o "${output_dir}/capabilities" cmd/capabilities/main.go
   echo "Success! Binaries are in '${output_dir}'."
 popd > /dev/null
