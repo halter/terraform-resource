@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Action struct {
@@ -19,6 +20,8 @@ type Action struct {
 	Logger    logger.Logger
 	EnvName   string
 	SourceDir string
+	// Now is injectable for offline tests; production uses the host clock.
+	Now func() time.Time
 }
 
 type Result struct {
@@ -119,6 +122,13 @@ func (a *Action) attemptApply() (Result, error) {
 
 	if a.Model.SuppressOutput {
 		if err := verified.Verify(a.Model.PlanFileLocalPath, a.Model.ExpectedPlanChecksum); err != nil {
+			return Result{}, err
+		}
+		now := time.Now
+		if a.Now != nil {
+			now = a.Now
+		}
+		if err := verified.CheckDeadline(a.Model.VerificationDeadline, now()); err != nil {
 			return Result{}, err
 		}
 	}

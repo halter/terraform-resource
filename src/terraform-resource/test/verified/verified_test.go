@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	resourcein "github.com/ljfranklin/terraform-resource/in"
 	"github.com/ljfranklin/terraform-resource/models"
@@ -16,6 +17,7 @@ import (
 )
 
 const fakeCLI = `#!/bin/sh
+if [ "${FAKE_RECORD:-}" = "1" ]; then printf 'CALL:%s\n' "$1" >> "$FAKE_LOG"; fi
 if [ -n "${TF_LOG:-}${TF_LOG_PATH:-}${TF_LOG_PROVIDER:-}${TF_CLI_ARGS:-}${TF_CLI_ARGS_plan:-}${TF_REATTACH_PROVIDERS:-}" ]; then echo ENV-LEAK >> "$FAKE_LOG"; fi
 case "$1:$2" in plan:*|apply:*|workspace:select|workspace:new|workspace:list) if [ -n "${TF_WORKSPACE:-}" ]; then echo WORKSPACE-LEAK >> "$FAKE_LOG"; fi;; esac
 if [ "$FAKE_FAIL" = "$1" ]; then echo 'PRIVATE-CANARY' >&2; echo 'PRIVATE-CANARY'; exit 1; fi
@@ -37,6 +39,8 @@ type harness struct {
 	outdir string
 	logs   bytes.Buffer
 	req    models.OutRequest
+	now    time.Time
+	clock  func() time.Time
 }
 
 func setup(t *testing.T) *harness {
@@ -58,6 +62,7 @@ func setup(t *testing.T) *harness {
 	t.Setenv("FAKE_FAIL", "")
 	t.Setenv("FAKE_PLAN_BASE64", "")
 	t.Setenv("FAKE_JSON_BASE64", "")
+	t.Setenv("FAKE_RECORD", "")
 	old, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
@@ -66,9 +71,14 @@ func setup(t *testing.T) *harness {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.Chdir(old) })
-	return &harness{dir: dir, work: work, outdir: output, req: models.OutRequest{Source: models.Source{Terraform: models.Terraform{BackendType: "fake"}}, Params: models.OutParams{EnvName: "tools", Terraform: models.Terraform{Source: work, PlanOnly: true}, SensitivePlan: true}}}
+	h := &harness{dir: dir, work: work, outdir: output, now: time.Date(2026, 11, 15, 20, 0, 0, 0, time.UTC), req: models.OutRequest{Source: models.Source{Terraform: models.Terraform{BackendType: "fake"}}, Params: models.OutParams{EnvName: "tools", Terraform: models.Terraform{Source: work, PlanOnly: true}, SensitivePlan: true}}}
+	h.clock = func() time.Time { return h.now }
+	return h
 }
-func (h *harness) runner() out.Runner { return out.Runner{SourceDir: h.work, LogWriter: &h.logs} }
+func (h *harness) runner() out.Runner {
+	return out.Runner{SourceDir: h.work, LogWriter: &h.logs, Now: h.clock}
+}
+func (h *harness) deadline() string { return h.now.Add(time.Minute).Format(time.RFC3339Nano) }
 func (h *harness) applied() bool {
 	b, _ := ioutil.ReadFile(filepath.Join(h.dir, "calls"))
 	return strings.Contains(string(b), "APPLY")
@@ -126,6 +136,7 @@ func TestVerifiedEndToEndSynthetic(t *testing.T) {
 	apply.Params.PlanOnly = false
 	apply.Params.PlanRun = true
 	apply.Params.ExpectedPlanChecksum = m.BinarySHA256
+	apply.Params.VerificationDeadline = h.deadline()
 	result, err := run.Run(apply)
 	if err != nil {
 		t.Fatal(err)
@@ -162,6 +173,7 @@ func TestVerifiedRejectsMisuseBeforeApply(t *testing.T) {
 			r.Params.PlanOnly = false
 			r.Params.PlanRun = true
 			r.Params.ExpectedPlanChecksum = verified.DigestBytes([]byte("fixture-plan"))
+			r.Params.VerificationDeadline = h.deadline()
 			switch name {
 			case "missing":
 				r.Params.ExpectedPlanChecksum = ""
@@ -192,6 +204,136 @@ func TestVerifiedRejectsMisuseBeforeApply(t *testing.T) {
 				t.Fatal("logged sensitive output")
 			}
 		})
+	}
+}
+
+func TestDeadlineRejectedBeforeAnyTerraformCLI(t *testing.T) {
+	for _, name := range []string{"missing", "malformed", "expired", "equal-now", "too-far", "offset", "fraction-zeros", "whitespace", "sensitive-plan", "direct"} {
+		t.Run(name, func(t *testing.T) {
+			h := setup(t)
+			t.Setenv("FAKE_RECORD", "1")
+			r := h.req
+			r.Params.SensitivePlan = false
+			r.Params.VerifiedPlan = true
+			r.Params.PlanOnly = false
+			r.Params.PlanRun = true
+			r.Params.ExpectedPlanChecksum = verified.DigestBytes([]byte("fixture-plan"))
+			r.Params.VerificationDeadline = h.deadline()
+			switch name {
+			case "missing":
+				r.Params.VerificationDeadline = ""
+			case "malformed":
+				r.Params.VerificationDeadline = "PRIVATE-CANARY"
+			case "expired":
+				r.Params.VerificationDeadline = h.now.Add(-time.Second).Format(time.RFC3339Nano)
+			case "equal-now":
+				r.Params.VerificationDeadline = h.now.Format(time.RFC3339Nano)
+			case "too-far":
+				r.Params.VerificationDeadline = h.now.Add(15*time.Minute + time.Nanosecond).Format(time.RFC3339Nano)
+			case "offset":
+				r.Params.VerificationDeadline = h.now.Add(time.Minute).Format("2006-01-02T15:04:05-07:00")
+			case "fraction-zeros":
+				r.Params.VerificationDeadline = "2026-11-15T20:01:00.100Z"
+			case "whitespace":
+				r.Params.VerificationDeadline += "\n"
+			case "sensitive-plan":
+				r = h.req
+				r.Params.VerificationDeadline = h.deadline()
+			case "direct":
+				r.Params.VerifiedPlan = false
+				r.Params.ExpectedPlanChecksum = ""
+			}
+			result, err := h.runner().Run(r)
+			if err == nil || err.Error() != verified.ErrInvalid.Error() || result.Version.VerifiedProtocol != "" || h.applied() || strings.Contains(h.logs.String(), "PRIVATE-CANARY") {
+				t.Fatal("deadline misuse was accepted or leaked")
+			}
+			if _, err = os.Stat(filepath.Join(h.dir, "calls")); !os.IsNotExist(err) {
+				t.Fatal("deadline validation ran Terraform CLI")
+			}
+		})
+	}
+}
+
+func TestDeadlinePresenceFromConcourseJSON(t *testing.T) {
+	for _, raw := range []string{`{"verification_deadline":""}`, `{"verification_deadline":null}`, `{"Verification_Deadline":""}`} {
+		t.Run(raw, func(t *testing.T) {
+			h := setup(t)
+			t.Setenv("FAKE_RECORD", "1")
+			var parsed models.OutParams
+			if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+				t.Fatal(err)
+			}
+			parsed.EnvName, parsed.Source, parsed.PlanOnly = "tools", h.work, true
+			r := h.req
+			r.Params = parsed
+			if _, err := h.runner().Run(r); err == nil || err.Error() != verified.ErrInvalid.Error() {
+				t.Fatal("explicit empty deadline ignored")
+			}
+			if _, err := os.Stat(filepath.Join(h.dir, "calls")); !os.IsNotExist(err) {
+				t.Fatal("terraform CLI ran")
+			}
+		})
+	}
+	var parsed models.OutParams
+	if err := json.Unmarshal([]byte(`{"terraform_source":"fixture","plan_only":true,"env_name":"tools"}`), &parsed); err != nil || parsed.HasVerificationDeadline() || parsed.Source != "fixture" || !parsed.PlanOnly || parsed.EnvName != "tools" {
+		t.Fatal("default input decode changed")
+	}
+	h := setup(t)
+	request := h.req
+	request.Params.SensitivePlan, request.Params.VerifiedPlan = false, true
+	request.Params.PlanOnly, request.Params.PlanRun = false, true
+	request.Params.ExpectedPlanChecksum = verified.DigestBytes([]byte("fixture-plan"))
+	request.Params.VerificationDeadline = h.deadline()
+	b, err := json.Marshal(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var roundtrip models.OutRequest
+	if err = json.Unmarshal(b, &roundtrip); err != nil || !roundtrip.Params.HasVerificationDeadline() {
+		t.Fatal("verified input decode failed")
+	}
+	if _, err = h.runner().Run(roundtrip); err != nil || !h.applied() {
+		t.Fatal("verified decoded input failed")
+	}
+}
+
+func TestDeadlineExpiresDuringPreparation(t *testing.T) {
+	for _, phase := range []string{"init", "output"} {
+		t.Run(phase, func(t *testing.T) {
+			h := setup(t)
+			t.Setenv("FAKE_RECORD", "1")
+			h.clock = func() time.Time {
+				calls, _ := ioutil.ReadFile(filepath.Join(h.dir, "calls"))
+				if strings.Contains(string(calls), "CALL:"+phase+"\n") {
+					return h.now.Add(2 * time.Minute)
+				}
+				return h.now
+			}
+			r := h.req
+			r.Params.SensitivePlan, r.Params.VerifiedPlan = false, true
+			r.Params.PlanOnly, r.Params.PlanRun = false, true
+			r.Params.ExpectedPlanChecksum = verified.DigestBytes([]byte("fixture-plan"))
+			r.Params.VerificationDeadline = h.deadline()
+			result, err := h.runner().Run(r)
+			calls, _ := ioutil.ReadFile(filepath.Join(h.dir, "calls"))
+			if err == nil || err.Error() != verified.ErrInvalid.Error() || result.Version.VerifiedProtocol != "" || h.applied() || strings.Contains(string(calls), "CALL:apply\n") || !strings.Contains(string(calls), "CALL:"+phase+"\n") || strings.Contains(h.logs.String(), "PRIVATE-CANARY") {
+				t.Fatal("expired preparation applied or leaked")
+			}
+		})
+	}
+}
+
+func TestDeadlineCanonicalBoundaries(t *testing.T) {
+	base := time.Date(2026, 11, 15, 20, 0, 0, 0, time.UTC)
+	for _, duration := range []time.Duration{time.Nanosecond, 10 * time.Millisecond, time.Second, 15 * time.Minute} {
+		encoded := base.Add(duration).Format(time.RFC3339Nano)
+		got, err := verified.ParseDeadline(encoded, base)
+		if err != nil || !got.Equal(base.Add(duration)) {
+			t.Fatal("valid canonical deadline rejected")
+		}
+	}
+	if _, err := verified.ParseDeadline(base.Add(15*time.Minute+time.Nanosecond).Format(time.RFC3339Nano), base); err == nil {
+		t.Fatal("unbounded deadline accepted")
 	}
 }
 
@@ -257,6 +399,7 @@ func TestStrictApplyFailureIsRedactedAndHasNoReceipt(t *testing.T) {
 	r.Params.PlanOnly = false
 	r.Params.PlanRun = true
 	r.Params.ExpectedPlanChecksum = verified.DigestBytes([]byte("fixture-plan"))
+	r.Params.VerificationDeadline = h.deadline()
 	t.Setenv("FAKE_FAIL", "apply")
 	result, err := h.runner().Run(r)
 	if err == nil || err.Error() != verified.ErrInvalid.Error() || result.Version.VerifiedProtocol != "" || strings.Contains(h.logs.String(), "PRIVATE-CANARY") {
@@ -285,6 +428,7 @@ func TestStrictScrubsInheritedAndModelEnvironment(t *testing.T) {
 	r.Params.PlanOnly = false
 	r.Params.PlanRun = true
 	r.Params.ExpectedPlanChecksum = plan.Version.PlanChecksum
+	r.Params.VerificationDeadline = h.deadline()
 	if _, err = h.runner().Run(r); err != nil {
 		t.Fatal(err)
 	}
@@ -306,6 +450,7 @@ func TestApplyReceiptCapability(t *testing.T) {
 	r.Params.PlanOnly = false
 	r.Params.PlanRun = true
 	r.Params.ExpectedPlanChecksum = sum
+	r.Params.VerificationDeadline = h.deadline()
 	resp, err := h.runner().Run(r)
 	if err != nil || resp.Version.AppliedPlanChecksum != sum || !h.applied() {
 		t.Fatal("checksum apply failed")

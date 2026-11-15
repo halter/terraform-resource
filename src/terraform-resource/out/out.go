@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path"
+	"time"
 
 	"github.com/ljfranklin/terraform-resource/logger"
 	"github.com/ljfranklin/terraform-resource/models"
@@ -21,7 +22,9 @@ type Runner struct {
 	SourceDir string
 	Namer     namer.Namer
 	LogWriter io.Writer
-	strict    bool
+	// Now is injectable for offline tests; production uses the host clock.
+	Now    func() time.Time
+	strict bool
 }
 
 func (r Runner) Run(req models.OutRequest) (models.OutResponse, error) {
@@ -36,7 +39,7 @@ func (r Runner) Run(req models.OutRequest) (models.OutResponse, error) {
 		resp.Metadata = nil
 		return resp, nil
 	}
-	if req.Params.ExpectedPlanChecksum != "" {
+	if req.Params.ExpectedPlanChecksum != "" || req.Params.HasVerificationDeadline() {
 		return models.OutResponse{}, verified.ErrInvalid
 	}
 	return r.run(req)
@@ -57,7 +60,7 @@ func (r Runner) runStrict(req models.OutRequest) (models.OutResponse, error) {
 		return models.OutResponse{}, verified.ErrInvalid
 	}
 	if req.Params.SensitivePlan {
-		if !req.Params.PlanOnly || !m.PlanOnly || m.PlanRun || req.Params.ExpectedPlanChecksum != "" {
+		if !req.Params.PlanOnly || !m.PlanOnly || m.PlanRun || req.Params.ExpectedPlanChecksum != "" || req.Params.HasVerificationDeadline() {
 			return models.OutResponse{}, verified.ErrInvalid
 		}
 	} else {
@@ -68,7 +71,16 @@ func (r Runner) runStrict(req models.OutRequest) (models.OutResponse, error) {
 		if !verified.ValidHash(expected) {
 			return models.OutResponse{}, verified.ErrInvalid
 		}
+		now := time.Now
+		if r.Now != nil {
+			now = r.Now
+		}
+		deadline, err := verified.ParseDeadline(req.Params.VerificationDeadline, now())
+		if err != nil {
+			return models.OutResponse{}, verified.ErrInvalid
+		}
 		req.Source.Terraform.ExpectedPlanChecksum = expected
+		req.Source.Terraform.VerificationDeadline = deadline
 	}
 	req.Source.Terraform.SuppressOutput = true
 	resp, err := r.run(req)
@@ -158,6 +170,7 @@ func (r Runner) runWithBackend(req models.OutRequest, terraformModel models.Terr
 		Client:  client,
 		EnvName: envName,
 		Model:   terraformModel,
+		Now:     r.Now,
 		Logger: logger.Logger{
 			Sink: r.LogWriter,
 		},

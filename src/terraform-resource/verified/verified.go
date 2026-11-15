@@ -11,15 +11,35 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 )
 
 const Protocol = "slack-import-plan/v1"
 const SourceVersion = "terraform-resource/slack-import-plan-v1"
+const DeadlineCapability = "slack-import-plan-deadline/v1"
+const MaxDeadlineHorizon = 15 * time.Minute
 
 var hashPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 var environmentPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 var versionPattern = regexp.MustCompile(`^Terraform v([0-9]+\.[0-9]+\.[0-9]+)$`)
 var ErrInvalid = errors.New("verified plan operation failed")
+
+// ParseDeadline accepts only the canonical UTC RFC3339Nano representation.
+// The trusted gate supplies this bound; it does not establish authorization.
+func ParseDeadline(s string, now time.Time) (time.Time, error) {
+	deadline, err := time.Parse(time.RFC3339Nano, s)
+	if err != nil || deadline.UTC().Format(time.RFC3339Nano) != s || CheckDeadline(deadline, now) != nil {
+		return time.Time{}, ErrInvalid
+	}
+	return deadline, nil
+}
+
+func CheckDeadline(deadline, now time.Time) error {
+	if now.IsZero() || deadline.IsZero() || !now.Before(deadline) || deadline.After(now.Add(MaxDeadlineHorizon)) {
+		return ErrInvalid
+	}
+	return nil
+}
 
 func ValidHash(s string) bool        { return hashPattern.MatchString(s) }
 func ValidEnvironment(s string) bool { return environmentPattern.MatchString(s) }
